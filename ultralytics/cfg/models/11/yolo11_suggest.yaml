@@ -1,0 +1,57 @@
+# Parameters
+nc: 10 # number of classes
+
+scales:
+  n: [0.50, 0.25, 512]  # lightest, fast
+  s: [0.50, 0.50, 512]  # small, balanced
+  m: [0.50, 1.00, 512]  # medium
+  l: [1.00, 1.00, 512]  # large
+  x: [1.00, 1.50, 512]  # extra large
+
+
+# YOLO11n backbone
+# YOLO11n backbone with extra downsampling before P2
+backbone:
+  - [-1, 1, GhostConv, [32, 3, 2]]     # 0-P1/2
+  - [-1, 1, GhostConv, [64, 3, 2]]          # 1-New downsampling before P2 (additional layer)
+  - [-1, 1, GhostConv, [64, 3, 2]]     # 2-P2/8 (shifted due to new layer)
+  - [-1, 2, C3k2, [128, False, 0.25, 2]]
+  - [-1, 1, GhostConv, [128, 1, 2]]    # 4-P3/16
+  - [-1, 2, C3k2, [256, False, 0.25, 1]]
+  - [-1, 1, Conv, [256, 1, 2]]         # 6-P4/32
+  - [-1, 2, C3k2, [256, True, 1]]
+  - [-1, 1, Conv, [512, 1, 2]]         # 8-P5/64
+  - [-1, 2, C3k2, [512, True, 1]]
+  - [-1, 1, SPPF, [512, 5]]
+  - [-1, 2, C2PSA, [512]]
+
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]          # upsample P5 → P4
+  - [[-1, 6], 1, Concat, [1]]                           # concat with P4
+  - [-1, 2, C3k2, [256, False, 1]]
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]          # upsample to P3
+  - [[-1, 4], 1, Concat, [1]]                           # concat with P3
+  - [-1, 2, C3k2, [128, False, 1]]
+
+  # P2 branch with concat and refinement (note index changed due to new backbone layer)
+  - [2, 1, GhostConv, [128, 1, 1]]                      # from new P2 (layer 2)
+  - [[-1, 2], 1, Concat, [1]]                           # concat with original P2 features (layer 2)
+  - [-1, 2, C3k2, [128, False, 1]]
+
+  # Downsample progressively for P3→P4→P5 detection scales:
+  - [-1, 1, Conv, [128, 1, 2]]
+  - [[-1, 16], 1, Concat, [1]]
+  - [-1, 2, C3k2, [256, False, 1]]
+
+  - [-1, 1, Conv, [256, 1, 2]]
+  - [[-1, 13], 1, Concat, [1]]
+  - [-1, 2, C3k2, [256, False, 1]]
+
+  - [-1, 1, Conv, [256, 1, 2]]
+  - [[-1, 10], 1, Concat, [1]]
+  - [-1, 2, C3k2, [256, True, 1]]
+
+  # Detect on four scales: P2, P3, P4, P5
+  - [[19, 22, 25, 28], 1, Detect, [nc]]
+
